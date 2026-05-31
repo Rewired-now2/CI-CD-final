@@ -30,6 +30,19 @@ func NewParcelService(store ParcelStore) ParcelService {
 	return ParcelService{store: store}
 }
 
+func initDB(db *sql.DB) error {
+	_, err := db.Exec(`
+	CREATE TABLE IF NOT EXISTS parcel (
+		number INTEGER PRIMARY KEY AUTOINCREMENT,
+		client INTEGER,
+		status TEXT,
+		address TEXT,
+		created_at TEXT
+	);
+	`)
+	return err
+}
+
 func (s ParcelService) Register(client int, address string) (Parcel, error) {
 	parcel := Parcel{
 		Client:    client,
@@ -45,8 +58,7 @@ func (s ParcelService) Register(client int, address string) (Parcel, error) {
 
 	parcel.Number = id
 
-	fmt.Printf("Новая посылка № %d на адрес %s от клиента с идентификатором %d зарегистрирована %s\n",
-		parcel.Number, parcel.Address, parcel.Client, parcel.CreatedAt)
+	fmt.Printf("Новая посылка № %d на адрес %s\n", parcel.Number, parcel.Address)
 
 	return parcel, nil
 }
@@ -57,13 +69,9 @@ func (s ParcelService) PrintClientParcels(client int) error {
 		return err
 	}
 
-	fmt.Printf("Посылки клиента %d:\n", client)
-	for _, parcel := range parcels {
-		fmt.Printf("Посылка № %d на адрес %s от клиента с идентификатором %d зарегистрирована %s, статус %s\n",
-			parcel.Number, parcel.Address, parcel.Client, parcel.CreatedAt, parcel.Status)
+	for _, p := range parcels {
+		fmt.Printf("Parcel #%d | %s | %s\n", p.Number, p.Status, p.Address)
 	}
-	fmt.Println()
-
 	return nil
 }
 
@@ -73,19 +81,20 @@ func (s ParcelService) NextStatus(number int) error {
 		return err
 	}
 
-	var nextStatus string
+	var next string
+
 	switch parcel.Status {
 	case ParcelStatusRegistered:
-		nextStatus = ParcelStatusSent
+		next = ParcelStatusSent
 	case ParcelStatusSent:
-		nextStatus = ParcelStatusDelivered
-	case ParcelStatusDelivered:
+		next = ParcelStatusDelivered
+	default:
 		return nil
 	}
 
-	fmt.Printf("У посылки № %d новый статус: %s\n", number, nextStatus)
+	fmt.Printf("Status updated: %s -> %s\n", parcel.Status, next)
 
-	return s.store.SetStatus(number, nextStatus)
+	return s.store.SetStatus(number, next)
 }
 
 func (s ParcelService) ChangeAddress(number int, address string) error {
@@ -104,74 +113,25 @@ func main() {
 	}
 	defer db.Close()
 
+	if err := initDB(db); err != nil {
+		fmt.Println("DB init error:", err)
+		return
+	}
+
 	store := NewParcelStore(db)
 	service := NewParcelService(store)
 
-	// регистрация посылки
 	client := 1
-	address := "Псков, д. Пушкина, ул. Колотушкина, д. 5"
+	address := "Test address"
+
 	p, err := service.Register(client, address)
 	if err != nil {
 		fmt.Println(err)
 		return
 	}
 
-	// изменение адреса
-	newAddress := "Саратов, д. Верхние Зори, ул. Козлова, д. 25"
-	err = service.ChangeAddress(p.Number, newAddress)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
+	service.NextStatus(p.Number)
+	service.PrintClientParcels(client)
 
-	// изменение статуса
-	err = service.NextStatus(p.Number)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
-	// вывод посылок клиента
-	err = service.PrintClientParcels(client)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
-	// попытка удаления отправленной посылки
-	err = service.Delete(p.Number)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
-	// вывод посылок клиента
-	// предыдущая посылка не должна удалиться, так как её статус «НЕ «зарегистрирована»
-	err = service.PrintClientParcels(client)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
-	// регистрация новой посылки
-	p, err = service.Register(client, address)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
-	// удаление новой посылки
-	err = service.Delete(p.Number)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
-	// вывод посылок клиента
-	// здесь не должно быть последней посылки, так как она должна была успешно удалиться
-	err = service.PrintClientParcels(client)
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
+	service.Delete(p.Number)
 }
