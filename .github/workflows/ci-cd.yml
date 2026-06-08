@@ -1,0 +1,49 @@
+name: CI-CD
+
+on:
+  pull_request:
+
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - "v*"
+
+jobs:
+  test:
+    name: Run tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - run: go mod download
+
+      - run: go test -v ./...
+
+  publish:
+    name: Docker publish
+    needs: test
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build image
+        run: |
+          docker build -t ${{ secrets.DOCKERHUB_USERNAME }}/parcel-tracker:${{ github.ref_name }} .
+
+      - name: Push image
+        run: |
+          docker push ${{ secrets.DOCKERHUB_USERNAME }}/parcel-tracker:${{ github.ref_name }}
